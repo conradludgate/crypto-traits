@@ -37,8 +37,7 @@ pub mod dev;
 #[cfg_attr(docsrs, doc(cfg(feature = "stream")))]
 pub mod stream;
 
-pub use generic_array::{self, typenum::consts};
-
+use array::Array;
 #[cfg(feature = "heapless")]
 #[cfg_attr(docsrs, doc(cfg(feature = "heapless")))]
 pub use heapless;
@@ -47,8 +46,7 @@ pub use heapless;
 #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
 pub use rand_core;
 
-use core::fmt;
-use generic_array::{typenum::Unsigned, ArrayLength, GenericArray};
+use core::{convert::TryInto, fmt};
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -75,23 +73,13 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-/// Key for a [`NewAead`] algorithm
-// TODO(tarcieri): make this a struct and zeroize on drop?
-pub type Key<A> = GenericArray<u8, <A as NewAead>::KeySize>;
-
-/// Nonce: single-use value for ensuring ciphertexts are unique
-pub type Nonce<A> = GenericArray<u8, <A as AeadCore>::NonceSize>;
-
-/// Tag: authentication code which ensures ciphertexts are authentic
-pub type Tag<A> = GenericArray<u8, <A as AeadCore>::TagSize>;
-
 /// Instantiate either a stateless [`Aead`] or stateful [`AeadMut`] algorithm.
 pub trait NewAead {
     /// The size of the key array required by this algorithm.
-    type KeySize: ArrayLength<u8>;
+    type Key: Array;
 
     /// Create a new AEAD instance with the given key.
-    fn new(key: &Key<Self>) -> Self;
+    fn new(key: Self::Key) -> Self;
 
     /// Create new AEAD instance from key given as a byte slice..
     ///
@@ -100,17 +88,14 @@ pub trait NewAead {
     where
         Self: Sized,
     {
-        if key.len() != Self::KeySize::to_usize() {
-            Err(Error)
-        } else {
-            Ok(Self::new(GenericArray::from_slice(key)))
-        }
+        let key = key.try_into().map_err(|_| Error)?;
+        Ok(Self::new(key))
     }
 
     /// Generate a random key for this AEAD using the provided [`CryptoRng`].
     #[cfg(feature = "rand_core")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
-    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Key<Self> {
+    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Self::Key {
         let mut key = Key::<Self>::default();
         rng.fill_bytes(&mut key);
         key
@@ -123,14 +108,14 @@ pub trait NewAead {
 /// `Aead*` traits.
 pub trait AeadCore {
     /// The length of a nonce.
-    type NonceSize: ArrayLength<u8>;
+    type Nonce: Array;
 
     /// The maximum length of the nonce.
-    type TagSize: ArrayLength<u8>;
+    type Tag: Array;
 
     /// The upper bound amount of additional space required to support a
     /// ciphertext vs. a plaintext.
-    type CiphertextOverhead: ArrayLength<u8> + Unsigned;
+    const CIPHERTEXT_OVERHEAD: usize;
 }
 
 /// Authenticated Encryption with Associated Data (AEAD) algorithm.
@@ -165,7 +150,7 @@ pub trait Aead: AeadCore {
     /// ciphertext message.
     fn encrypt<'msg, 'aad>(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         plaintext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>>;
 
@@ -188,7 +173,7 @@ pub trait Aead: AeadCore {
     /// ciphertext message.
     fn decrypt<'msg, 'aad>(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         ciphertext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>>;
 }
@@ -204,7 +189,7 @@ pub trait AeadMut: AeadCore {
     /// Associated Additional Data (AAD).
     fn encrypt<'msg, 'aad>(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         plaintext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>>;
 
@@ -215,7 +200,7 @@ pub trait AeadMut: AeadCore {
     /// message payloads and Associated Additional Data (AAD).
     fn decrypt<'msg, 'aad>(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         ciphertext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>>;
 }
@@ -227,13 +212,14 @@ pub trait AeadMut: AeadCore {
 /// postfix authentication tag will need to define their own implementation.
 macro_rules! impl_decrypt_in_place {
     ($aead:expr, $nonce:expr, $aad:expr, $buffer:expr) => {{
-        if $buffer.len() < Self::TagSize::to_usize() {
+        if $buffer.len() < Self::Tag::LEN {
             return Err(Error);
         }
 
-        let tag_pos = $buffer.len() - Self::TagSize::to_usize();
+        let tag_pos = $buffer.len() - Self::Tag::LEN;
         let (msg, tag) = $buffer.as_mut().split_at_mut(tag_pos);
-        $aead.decrypt_in_place_detached($nonce, $aad, msg, Tag::<Self>::from_slice(tag))?;
+        let tag = Self::Tag::try_from_slice(tag).map_err(|_| Error)?;
+        $aead.decrypt_in_place_detached($nonce, $aad, msg, tag)?;
         $buffer.truncate(tag_pos);
         Ok(())
     }};
@@ -254,22 +240,22 @@ pub trait AeadInPlace: AeadCore {
     /// resulting ciphertext message.
     fn encrypt_in_place(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut dyn Buffer,
     ) -> Result<()> {
         let tag = self.encrypt_in_place_detached(nonce, associated_data, buffer.as_mut())?;
-        buffer.extend_from_slice(tag.as_slice())?;
+        buffer.extend_from_slice(tag.as_ref())?;
         Ok(())
     }
 
     /// Encrypt the data in-place, returning the authentication tag
     fn encrypt_in_place_detached(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut [u8],
-    ) -> Result<Tag<Self>>;
+    ) -> Result<Self::Tag>;
 
     /// Decrypt the message in-place, returning an error in the event the
     /// provided authentication tag does not match the given ciphertext.
@@ -278,7 +264,7 @@ pub trait AeadInPlace: AeadCore {
     /// message upon success.
     fn decrypt_in_place(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut dyn Buffer,
     ) -> Result<()> {
@@ -290,10 +276,10 @@ pub trait AeadInPlace: AeadCore {
     /// is modified/unauthentic)
     fn decrypt_in_place_detached(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut [u8],
-        tag: &Tag<Self>,
+        tag: &Self::Tag,
     ) -> Result<()>;
 }
 
@@ -312,22 +298,22 @@ pub trait AeadMutInPlace: AeadCore {
     /// resulting ciphertext message.
     fn encrypt_in_place(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut impl Buffer,
     ) -> Result<()> {
         let tag = self.encrypt_in_place_detached(nonce, associated_data, buffer.as_mut())?;
-        buffer.extend_from_slice(tag.as_slice())?;
+        buffer.extend_from_slice(tag.as_ref())?;
         Ok(())
     }
 
     /// Encrypt the data in-place, returning the authentication tag
     fn encrypt_in_place_detached(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut [u8],
-    ) -> Result<Tag<Self>>;
+    ) -> Result<Self::Tag>;
 
     /// Decrypt the message in-place, returning an error in the event the
     /// provided authentication tag does not match the given ciphertext.
@@ -336,7 +322,7 @@ pub trait AeadMutInPlace: AeadCore {
     /// message upon success.
     fn decrypt_in_place(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut impl Buffer,
     ) -> Result<()> {
@@ -348,10 +334,10 @@ pub trait AeadMutInPlace: AeadCore {
     /// is modified/unauthentic)
     fn decrypt_in_place_detached(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut [u8],
-        tag: &Tag<Self>,
+        tag: &Self::Tag,
     ) -> Result<()>;
 }
 
@@ -359,7 +345,7 @@ pub trait AeadMutInPlace: AeadCore {
 impl<Alg: AeadInPlace> Aead for Alg {
     fn encrypt<'msg, 'aad>(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         plaintext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>> {
         let payload = plaintext.into();
@@ -371,7 +357,7 @@ impl<Alg: AeadInPlace> Aead for Alg {
 
     fn decrypt<'msg, 'aad>(
         &self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         ciphertext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>> {
         let payload = ciphertext.into();
@@ -385,7 +371,7 @@ impl<Alg: AeadInPlace> Aead for Alg {
 impl<Alg: AeadMutInPlace> AeadMut for Alg {
     fn encrypt<'msg, 'aad>(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         plaintext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>> {
         let payload = plaintext.into();
@@ -397,7 +383,7 @@ impl<Alg: AeadMutInPlace> AeadMut for Alg {
 
     fn decrypt<'msg, 'aad>(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         ciphertext: impl Into<Payload<'msg, 'aad>>,
     ) -> Result<Vec<u8>> {
         let payload = ciphertext.into();
@@ -410,7 +396,7 @@ impl<Alg: AeadMutInPlace> AeadMut for Alg {
 impl<Alg: AeadInPlace> AeadMutInPlace for Alg {
     fn encrypt_in_place(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut impl Buffer,
     ) -> Result<()> {
@@ -419,16 +405,16 @@ impl<Alg: AeadInPlace> AeadMutInPlace for Alg {
 
     fn encrypt_in_place_detached(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut [u8],
-    ) -> Result<Tag<Self>> {
+    ) -> Result<Self::Tag> {
         <Self as AeadInPlace>::encrypt_in_place_detached(self, nonce, associated_data, buffer)
     }
 
     fn decrypt_in_place(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut impl Buffer,
     ) -> Result<()> {
@@ -437,10 +423,10 @@ impl<Alg: AeadInPlace> AeadMutInPlace for Alg {
 
     fn decrypt_in_place_detached(
         &mut self,
-        nonce: &Nonce<Self>,
+        nonce: &Self::Nonce,
         associated_data: &[u8],
         buffer: &mut [u8],
-        tag: &Tag<Self>,
+        tag: &Self::Tag,
     ) -> Result<()> {
         <Self as AeadInPlace>::decrypt_in_place_detached(self, nonce, associated_data, buffer, tag)
     }
@@ -523,11 +509,9 @@ mod tests {
 
     /// Ensure that `AeadInPlace` is object-safe
     #[allow(dead_code)]
-    type DynAeadInPlace<N, T, O> =
-        dyn AeadInPlace<NonceSize = N, TagSize = T, CiphertextOverhead = O>;
+    type DynAeadInPlace<N, T> = dyn AeadInPlace<Nonce = N, Tag = T>;
 
     /// Ensure that `AeadMutInPlace` is object-safe
     #[allow(dead_code)]
-    type DynAeadMutInPlace<N, T, O> =
-        dyn AeadMutInPlace<NonceSize = N, TagSize = T, CiphertextOverhead = O>;
+    type DynAeadMutInPlace<N, T> = dyn AeadMutInPlace<Nonce = N, Tag = T>;
 }

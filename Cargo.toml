@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "block-buffer",
-    # "aead",
+    "aead",
     "crypto-common",
     "digest",
     # "signature",
