@@ -1,5 +1,6 @@
 use super::{FixedOutput, FixedOutputReset, InvalidBufferSize, Reset, Update};
-use crypto_common::{typenum::Unsigned, Output, OutputSizeUser};
+use array::Array;
+use crypto_common::OutputSizeUser;
 
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
@@ -27,18 +28,18 @@ pub trait Digest: OutputSizeUser {
     fn chain_update(self, data: impl AsRef<[u8]>) -> Self;
 
     /// Retrieve result and consume hasher instance.
-    fn finalize(self) -> Output<Self>;
+    fn finalize(self) -> Self::Output;
 
     /// Write result into provided array and consume the hasher instance.
-    fn finalize_into(self, out: &mut Output<Self>);
+    fn finalize_into(self, out: &mut Self::Output);
 
     /// Retrieve result and reset hasher instance.
-    fn finalize_reset(&mut self) -> Output<Self>
+    fn finalize_reset(&mut self) -> Self::Output
     where
         Self: FixedOutputReset;
 
     /// Write result into provided array and reset the hasher instance.
-    fn finalize_into_reset(&mut self, out: &mut Output<Self>)
+    fn finalize_into_reset(&mut self, out: &mut Self::Output)
     where
         Self: FixedOutputReset;
 
@@ -51,7 +52,7 @@ pub trait Digest: OutputSizeUser {
     fn output_size() -> usize;
 
     /// Compute hash of `data`.
-    fn digest(data: impl AsRef<[u8]>) -> Output<Self>;
+    fn digest(data: impl AsRef<[u8]>) -> Self::Output;
 }
 
 impl<D: FixedOutput + Default + Update + HashMarker> Digest for D {
@@ -82,17 +83,17 @@ impl<D: FixedOutput + Default + Update + HashMarker> Digest for D {
     }
 
     #[inline]
-    fn finalize(self) -> Output<Self> {
+    fn finalize(self) -> Self::Output {
         FixedOutput::finalize_fixed(self)
     }
 
     #[inline]
-    fn finalize_into(self, out: &mut Output<Self>) {
+    fn finalize_into(self, out: &mut Self::Output) {
         FixedOutput::finalize_into(self, out);
     }
 
     #[inline]
-    fn finalize_reset(&mut self) -> Output<Self>
+    fn finalize_reset(&mut self) -> Self::Output
     where
         Self: FixedOutputReset,
     {
@@ -100,7 +101,7 @@ impl<D: FixedOutput + Default + Update + HashMarker> Digest for D {
     }
 
     #[inline]
-    fn finalize_into_reset(&mut self, out: &mut Output<Self>)
+    fn finalize_into_reset(&mut self, out: &mut Self::Output)
     where
         Self: FixedOutputReset,
     {
@@ -117,11 +118,11 @@ impl<D: FixedOutput + Default + Update + HashMarker> Digest for D {
 
     #[inline]
     fn output_size() -> usize {
-        Self::OutputSize::to_usize()
+        <<Self as OutputSizeUser>::Output as Array>::LEN
     }
 
     #[inline]
-    fn digest(data: impl AsRef<[u8]>) -> Output<Self> {
+    fn digest(data: impl AsRef<[u8]>) -> Self::Output {
         let mut hasher = Self::default();
         hasher.update(data.as_ref());
         hasher.finalize()
@@ -196,21 +197,21 @@ impl<D: Update + FixedOutputReset + Reset + Clone + 'static> DynDigest for D {
     }
 
     fn finalize_into(self, buf: &mut [u8]) -> Result<(), InvalidBufferSize> {
-        if buf.len() == self.output_size() {
-            FixedOutput::finalize_into(self, Output::<Self>::from_mut_slice(buf));
-            Ok(())
-        } else {
-            Err(InvalidBufferSize)
-        }
+        FixedOutput::finalize_into(
+            self,
+            <<Self as OutputSizeUser>::Output as Array>::try_from_mut_slice(buf)
+                .map_err(|_| InvalidBufferSize)?,
+        );
+        Ok(())
     }
 
     fn finalize_into_reset(&mut self, buf: &mut [u8]) -> Result<(), InvalidBufferSize> {
-        if buf.len() == self.output_size() {
-            FixedOutputReset::finalize_into_reset(self, Output::<Self>::from_mut_slice(buf));
-            Ok(())
-        } else {
-            Err(InvalidBufferSize)
-        }
+        FixedOutputReset::finalize_into_reset(
+            self,
+            <<Self as OutputSizeUser>::Output as Array>::try_from_mut_slice(buf)
+                .map_err(|_| InvalidBufferSize)?,
+        );
+        Ok(())
     }
 
     fn reset(&mut self) {
@@ -218,7 +219,7 @@ impl<D: Update + FixedOutputReset + Reset + Clone + 'static> DynDigest for D {
     }
 
     fn output_size(&self) -> usize {
-        <Self as OutputSizeUser>::OutputSize::to_usize()
+        <<Self as OutputSizeUser>::Output as Array>::LEN
     }
 
     #[cfg(feature = "alloc")]

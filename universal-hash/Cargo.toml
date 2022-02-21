@@ -1,11 +1,11 @@
 [package]
 name = "universal-hash"
 version = "0.4.1" # Also update html_root_url in lib.rs when bumping this
-authors = ["RustCrypto Developers"]
+authors = ["RustCrypto Developers", "Conrad Ludgate <conradludgate@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Trait for universal hash functions"
 documentation = "https://docs.rs/universal-hash"
-repository = "https://github.com/RustCrypto/traits"
+repository = "https://github.com/conradludgate/crypto-traits"
 keywords = ["crypto", "mac"]
 categories = ["cryptography", "no-std"]
 readme = "README.md"

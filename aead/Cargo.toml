@@ -5,12 +5,12 @@ description = """
 Traits for Authenticated Encryption with Associated Data (AEAD) algorithms,
 such as AES-GCM as ChaCha20Poly1305, which provide a high-level API
 """
-authors = ["RustCrypto Developers"]
+authors = ["RustCrypto Developers", "Conrad Ludgate <conradludgate@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 documentation = "https://docs.rs/aead"
-repository = "https://github.com/RustCrypto/traits"
+repository = "https://github.com/conradludgate/crypto-traits"
 keywords = ["crypto", "encryption"]
 categories = ["cryptography", "no-std"]
 

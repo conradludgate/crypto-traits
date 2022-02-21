@@ -2,13 +2,13 @@
 name = "cipher"
 description = "Traits for describing block ciphers and stream ciphers"
 version = "0.4.2" # Also update html_root_url in lib.rs when bumping this
-authors = ["RustCrypto Developers"]
+authors = ["RustCrypto Developers", "Conrad Ludgate <conradludgate@gmail.com>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 edition = "2021"
 rust-version = "1.56"
 documentation = "https://docs.rs/cipher"
-repository = "https://github.com/RustCrypto/traits"
+repository = "https://github.com/conradludgate/crypto-traits"
 keywords = ["crypto", "block-cipher", "stream-cipher", "trait"]
 categories = ["cryptography", "no-std"]
 

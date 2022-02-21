@@ -6,7 +6,7 @@ as well as a `no_std`-friendly implementation of the PHC string format
 (a well-defined subset of the Modular Crypt Format a.k.a. MCF)
 """
 version = "0.4.0-pre" # Also update html_root_url in lib.rs when bumping this
-authors = ["RustCrypto Developers"]
+authors = ["RustCrypto Developers", "Conrad Ludgate <conradludgate@gmail.com>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 documentation = "https://docs.rs/password-hash"

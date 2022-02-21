@@ -39,6 +39,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+use array::Array;
 #[cfg(feature = "rand_core")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
 pub use crypto_common::rand_core;
@@ -63,7 +64,7 @@ pub use block_buffer;
 pub use crypto_common;
 
 pub use crate::digest::{Digest, DynDigest, HashMarker};
-pub use crypto_common::{generic_array, typenum, typenum::consts, Output, OutputSizeUser, Reset};
+pub use crypto_common::{OutputSizeUser, Reset};
 #[cfg(feature = "mac")]
 pub use crypto_common::{InnerInit, InvalidLength, Key, KeyInit};
 #[cfg(feature = "mac")]
@@ -90,12 +91,12 @@ pub trait Update {
 /// Trait for hash functions with fixed-size output.
 pub trait FixedOutput: Update + OutputSizeUser + Sized {
     /// Consume value and write result into provided array.
-    fn finalize_into(self, out: &mut Output<Self>);
+    fn finalize_into(self, out: &mut Self::Output);
 
     /// Retrieve result and consume the hasher instance.
     #[inline]
-    fn finalize_fixed(self) -> Output<Self> {
-        let mut out = Default::default();
+    fn finalize_fixed(self) -> Self::Output {
+        let mut out = <Self::Output as Array>::zero();
         self.finalize_into(&mut out);
         out
     }
@@ -104,12 +105,12 @@ pub trait FixedOutput: Update + OutputSizeUser + Sized {
 /// Trait for hash functions with fixed-size output able to reset themselves.
 pub trait FixedOutputReset: FixedOutput + Reset {
     /// Write result into provided array and reset the hasher state.
-    fn finalize_into_reset(&mut self, out: &mut Output<Self>);
+    fn finalize_into_reset(&mut self, out: &mut Self::Output);
 
     /// Retrieve result and reset the hasher state.
     #[inline]
-    fn finalize_fixed_reset(&mut self) -> Output<Self> {
-        let mut out = Default::default();
+    fn finalize_fixed_reset(&mut self) -> Self::Output {
+        let mut out = <Self::Output as Array>::zero();
         self.finalize_into_reset(&mut out);
         out
     }

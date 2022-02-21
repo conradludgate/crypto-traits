@@ -3,9 +3,9 @@ use super::{AlgorithmName, TruncSide, UpdateCore, VariableOutputCore};
 use crate::MacMarker;
 use crate::{HashMarker, InvalidBufferSize};
 use crate::{InvalidOutputSize, Reset, Update, VariableOutput, VariableOutputReset};
+use array::Array;
 use block_buffer::BlockBuffer;
 use core::fmt;
-use crypto_common::typenum::{IsLess, Le, NonZero, Unsigned, U256};
 
 /// Wrapper around [`VariableOutputCore`] which selects output size
 /// at run time.
@@ -13,19 +13,15 @@ use crypto_common::typenum::{IsLess, Le, NonZero, Unsigned, U256};
 pub struct RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     core: T,
-    buffer: BlockBuffer<T::BlockSize, T::BufferKind>,
+    buffer: BlockBuffer<T::Block, T::BufferKind>,
     output_size: usize,
 }
 
 impl<T> RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn finalize_dirty(&mut self, out: &mut [u8]) -> Result<(), InvalidBufferSize> {
@@ -37,25 +33,19 @@ where
         if out.len() != *output_size || out.len() > Self::MAX_OUTPUT_SIZE {
             return Err(InvalidBufferSize);
         }
-        let mut full_res = Default::default();
+        let mut full_res = <T::Output as Array>::zero();
         core.finalize_variable_core(buffer, &mut full_res);
         let n = out.len();
-        let m = full_res.len() - n;
+        let m = full_res.as_ref().len() - n;
         match T::TRUNC_SIDE {
-            TruncSide::Left => out.copy_from_slice(&full_res[..n]),
-            TruncSide::Right => out.copy_from_slice(&full_res[m..]),
+            TruncSide::Left => out.copy_from_slice(&full_res.as_ref()[..n]),
+            TruncSide::Right => out.copy_from_slice(&full_res.as_ref()[m..]),
         }
         Ok(())
     }
 }
 
-impl<T> HashMarker for RtVariableCoreWrapper<T>
-where
-    T: VariableOutputCore + HashMarker,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
-{
-}
+impl<T> HashMarker for RtVariableCoreWrapper<T> where T: VariableOutputCore + HashMarker {}
 
 #[cfg(feature = "mac")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mac")))]
@@ -70,8 +60,6 @@ where
 impl<T> Reset for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore + Reset,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn reset(&mut self) {
@@ -83,8 +71,6 @@ where
 impl<T> Update for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn update(&mut self, input: &[u8]) {
@@ -96,10 +82,8 @@ where
 impl<T> VariableOutput for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
-    const MAX_OUTPUT_SIZE: usize = T::OutputSize::USIZE;
+    const MAX_OUTPUT_SIZE: usize = <T::Output as Array>::LEN;
 
     fn new(output_size: usize) -> Result<Self, InvalidOutputSize> {
         let buffer = Default::default();
@@ -122,8 +106,6 @@ where
 impl<T> VariableOutputReset for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore + Reset,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     fn finalize_variable_reset(&mut self, out: &mut [u8]) -> Result<(), InvalidBufferSize> {
         self.finalize_dirty(out)?;
@@ -136,8 +118,6 @@ where
 impl<T> fmt::Debug for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore + AlgorithmName,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         T::write_alg_name(f)?;
@@ -150,8 +130,6 @@ where
 impl<T> std::io::Write for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

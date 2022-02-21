@@ -10,70 +10,50 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+// #![allow(incomplete_features)]
+// #![feature(adt_const_params, generic_const_exprs)]
+
 #[cfg(feature = "std")]
 extern crate std;
 
+use array::Array;
 #[cfg(feature = "rand_core")]
 pub use rand_core;
 
-pub use generic_array;
-pub use generic_array::typenum;
-
-use core::fmt;
-use generic_array::{typenum::Unsigned, ArrayLength, GenericArray};
+use core::{
+    array::TryFromSliceError,
+    convert::{TryFrom, TryInto},
+    fmt,
+};
 #[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, RngCore};
-
-/// Block on which [`BlockSizeUser`] implementors operate.
-pub type Block<B> = GenericArray<u8, <B as BlockSizeUser>::BlockSize>;
-/// Output array of [`OutputSizeUser`] implementors.
-pub type Output<T> = GenericArray<u8, <T as OutputSizeUser>::OutputSize>;
-/// Key used by [`KeySizeUser`] implementors.
-pub type Key<B> = GenericArray<u8, <B as KeySizeUser>::KeySize>;
-/// Initialization vector (nonce) used by [`IvSizeUser`] implementors.
-pub type Iv<B> = GenericArray<u8, <B as IvSizeUser>::IvSize>;
 
 /// Types which process data in blocks.
 pub trait BlockSizeUser {
     /// Size of the block in bytes.
-    type BlockSize: ArrayLength<u8> + 'static;
-
-    /// Return block size in bytes.
-    fn block_size() -> usize {
-        Self::BlockSize::USIZE
-    }
+    type Block: Array;
 }
 
 impl<T: BlockSizeUser> BlockSizeUser for &T {
-    type BlockSize = T::BlockSize;
+    type Block = T::Block;
 }
 
 impl<T: BlockSizeUser> BlockSizeUser for &mut T {
-    type BlockSize = T::BlockSize;
+    type Block = T::Block;
 }
 
 /// Types which return data with the given size.
 pub trait OutputSizeUser {
-    /// Size of the output in bytes.
-    type OutputSize: ArrayLength<u8> + 'static;
-
-    /// Return output size in bytes.
-    fn output_size() -> usize {
-        Self::OutputSize::USIZE
-    }
+    /// Size of the block in bytes.
+    type Output: Array;
 }
 
 /// Types which use key for initialization.
 ///
 /// Generally it's used indirectly via [`KeyInit`] or [`KeyIvInit`].
 pub trait KeySizeUser {
-    /// Key size in bytes.
-    type KeySize: ArrayLength<u8> + 'static;
-
-    /// Return key size in bytes.
-    fn key_size() -> usize {
-        Self::KeySize::USIZE
-    }
+    /// Size of the block in bytes.
+    type Key: Array;
 }
 
 /// Types which use initialization vector (nonce) for initialization.
@@ -81,12 +61,7 @@ pub trait KeySizeUser {
 /// Generally it's used indirectly via [`KeyIvInit`] or [`InnerIvInit`].
 pub trait IvSizeUser {
     /// Initialization vector size in bytes.
-    type IvSize: ArrayLength<u8> + 'static;
-
-    /// Return IV size in bytes.
-    fn iv_size() -> usize {
-        Self::IvSize::USIZE
-    }
+    type Iv: Array;
 }
 
 /// Types which use another type for initialization.
@@ -112,23 +87,19 @@ pub trait AlgorithmName {
 /// Types which can be initialized from key.
 pub trait KeyInit: KeySizeUser + Sized {
     /// Create new value from fixed size key.
-    fn new(key: &Key<Self>) -> Self;
+    fn new(key: Self::Key) -> Self;
 
     /// Create new value from variable size key.
-    fn new_from_slice(key: &[u8]) -> Result<Self, InvalidLength> {
-        if key.len() != Self::KeySize::to_usize() {
-            Err(InvalidLength)
-        } else {
-            Ok(Self::new(Key::<Self>::from_slice(key)))
-        }
+    fn new_from_slice(key: &[u8]) -> Result<Self, TryFromSliceError> {
+        Self::Key::try_from(key).map(Self::new)
     }
 
     /// Generate random key using the provided [`CryptoRng`].
     #[cfg(feature = "rand_core")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
     #[inline]
-    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Key<Self> {
-        let mut key = Key::<Self>::default();
+    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Self::Key {
+        let mut key = Self::Key::zero();
         rng.fill_bytes(&mut key);
         key
     }
@@ -137,29 +108,22 @@ pub trait KeyInit: KeySizeUser + Sized {
 /// Types which can be initialized from key and initialization vector (nonce).
 pub trait KeyIvInit: KeySizeUser + IvSizeUser + Sized {
     /// Create new value from fixed length key and nonce.
-    fn new(key: &Key<Self>, iv: &Iv<Self>) -> Self;
+    fn new(key: Self::Key, iv: Self::Iv) -> Self;
 
     /// Create new value from variable length key and nonce.
     #[inline]
-    fn new_from_slices(key: &[u8], iv: &[u8]) -> Result<Self, InvalidLength> {
-        let key_len = Self::KeySize::USIZE;
-        let iv_len = Self::IvSize::USIZE;
-        if key.len() != key_len || iv.len() != iv_len {
-            Err(InvalidLength)
-        } else {
-            Ok(Self::new(
-                Key::<Self>::from_slice(key),
-                Iv::<Self>::from_slice(iv),
-            ))
-        }
+    fn new_from_slices(key: &[u8], iv: &[u8]) -> Result<Self, TryFromSliceError> {
+        let key = key.try_into()?;
+        let iv = iv.try_into()?;
+        Ok(Self::new(key, iv))
     }
 
     /// Generate random key using the provided [`CryptoRng`].
     #[cfg(feature = "rand_core")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
     #[inline]
-    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Key<Self> {
-        let mut key = Key::<Self>::default();
+    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Self::Key {
+        let mut key = Self::Key::zero();
         rng.fill_bytes(&mut key);
         key
     }
@@ -168,8 +132,8 @@ pub trait KeyIvInit: KeySizeUser + IvSizeUser + Sized {
     #[cfg(feature = "rand_core")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
     #[inline]
-    fn generate_iv(mut rng: impl CryptoRng + RngCore) -> Iv<Self> {
-        let mut iv = Iv::<Self>::default();
+    fn generate_iv(mut rng: impl CryptoRng + RngCore) -> Self::Iv {
+        let mut iv = Self::Iv::zero();
         rng.fill_bytes(&mut iv);
         iv
     }
@@ -178,7 +142,7 @@ pub trait KeyIvInit: KeySizeUser + IvSizeUser + Sized {
     #[cfg(feature = "rand_core")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
     #[inline]
-    fn generate_key_iv(mut rng: impl CryptoRng + RngCore) -> (Key<Self>, Iv<Self>) {
+    fn generate_key_iv(mut rng: impl CryptoRng + RngCore) -> (Self::Key, Self::Iv) {
         (Self::generate_key(&mut rng), Self::generate_iv(&mut rng))
     }
 }
@@ -197,23 +161,20 @@ pub trait InnerInit: InnerUser + Sized {
 /// Usually used for initializing types from block ciphers.
 pub trait InnerIvInit: InnerUser + IvSizeUser + Sized {
     /// Initialize value using `inner` and `iv` array.
-    fn inner_iv_init(inner: Self::Inner, iv: &Iv<Self>) -> Self;
+    fn inner_iv_init(inner: Self::Inner, iv: Self::Iv) -> Self;
 
     /// Initialize value using `inner` and `iv` slice.
-    fn inner_iv_slice_init(inner: Self::Inner, iv: &[u8]) -> Result<Self, InvalidLength> {
-        if iv.len() != Self::IvSize::to_usize() {
-            Err(InvalidLength)
-        } else {
-            Ok(Self::inner_iv_init(inner, Iv::<Self>::from_slice(iv)))
-        }
+    fn inner_iv_slice_init(inner: Self::Inner, iv: &[u8]) -> Result<Self, TryFromSliceError> {
+        let iv = iv.try_into()?;
+        Ok(Self::inner_iv_init(inner, iv))
     }
 
     /// Generate random IV using the provided [`CryptoRng`].
     #[cfg(feature = "rand_core")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
     #[inline]
-    fn generate_iv(mut rng: impl CryptoRng + RngCore) -> Iv<Self> {
-        let mut iv = Iv::<Self>::default();
+    fn generate_iv(mut rng: impl CryptoRng + RngCore) -> Self::Iv {
+        let mut iv = Self::Iv::zero();
         rng.fill_bytes(&mut iv);
         iv
     }
@@ -224,7 +185,7 @@ where
     T: InnerUser,
     T::Inner: KeySizeUser,
 {
-    type KeySize = <T::Inner as KeySizeUser>::KeySize;
+    type Key = <T::Inner as KeySizeUser>::Key;
 }
 
 impl<T> KeyIvInit for T
@@ -233,12 +194,12 @@ where
     T::Inner: KeyInit,
 {
     #[inline]
-    fn new(key: &Key<Self>, iv: &Iv<Self>) -> Self {
+    fn new(key: Self::Key, iv: Self::Iv) -> Self {
         Self::inner_iv_init(T::Inner::new(key), iv)
     }
 
     #[inline]
-    fn new_from_slices(key: &[u8], iv: &[u8]) -> Result<Self, InvalidLength> {
+    fn new_from_slices(key: &[u8], iv: &[u8]) -> Result<Self, TryFromSliceError> {
         T::Inner::new_from_slice(key).and_then(|i| T::inner_iv_slice_init(i, iv))
     }
 }
@@ -249,15 +210,13 @@ where
     T::Inner: KeyInit,
 {
     #[inline]
-    fn new(key: &Key<Self>) -> Self {
+    fn new(key: Self::Key) -> Self {
         Self::inner_init(T::Inner::new(key))
     }
 
     #[inline]
-    fn new_from_slice(key: &[u8]) -> Result<Self, InvalidLength> {
-        T::Inner::new_from_slice(key)
-            .map_err(|_| InvalidLength)
-            .map(Self::inner_init)
+    fn new_from_slice(key: &[u8]) -> Result<Self, TryFromSliceError> {
+        T::Inner::new_from_slice(key).map(Self::inner_init)
     }
 }
 
@@ -271,7 +230,7 @@ where
     T::Inner: KeyIvInit,
 {
     #[inline]
-    fn new(key: &Key<Self>, iv: &Iv<Self>) -> Self {
+    fn new(key: &Self::Key, iv: &Self::Iv) -> Self {
         Self::inner_init(T::Inner::new(key, iv))
     }
 
@@ -283,18 +242,3 @@ where
     }
 }
 */
-
-/// The error type returned when key and/or IV used in the [`KeyInit`],
-/// [`KeyIvInit`], and [`InnerIvInit`] slice-based methods had
-/// an invalid length.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct InvalidLength;
-
-impl fmt::Display for InvalidLength {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("Invalid Length")
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for InvalidLength {}

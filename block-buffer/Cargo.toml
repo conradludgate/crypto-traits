@@ -1,0 +1,15 @@
+[package]
+name = "block-buffer"
+description = "Traits for cryptographic hash functions"
+version = "0.11.0"
+authors = ["RustCrypto Developers", "Conrad Ludgate <conradludgate@gmail.com>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+edition = "2018"
+documentation = "https://docs.rs/digest"
+repository = "https://github.com/conradludgate/crypto-traits"
+keywords = ["digest", "crypto", "hash"]
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+array = { version = "0.1", path = "../array" }

@@ -7,7 +7,7 @@ Resources for building cryptosystems in Rust using the RustCrypto project's ecos
 authors = ["The RustCrypto Project Developers"]
 license = "Apache-2.0 OR MIT"
 documentation = "https://docs.rs/crypto"
-repository = "https://github.com/RustCrypto/traits"
+repository = "https://github.com/conradludgate/crypto-traits"
 keywords = ["crypto", "encryption", "rustcrypto"]
 categories = ["cryptography", "no-std"]
 readme = "README.md"

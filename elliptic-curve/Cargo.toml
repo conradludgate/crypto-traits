@@ -6,7 +6,7 @@ General purpose Elliptic Curve Cryptography (ECC) support, including types
 and traits for representing various elliptic curve forms, scalars, points,
 and public/secret keys composed thereof.
 """
-authors = ["RustCrypto Developers"]
+authors = ["RustCrypto Developers", "Conrad Ludgate <conradludgate@gmail.com>"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/traits/tree/master/elliptic-curve"
 readme = "README.md"

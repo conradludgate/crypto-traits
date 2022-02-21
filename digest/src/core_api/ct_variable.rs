@@ -5,145 +5,96 @@ use super::{
 use crate::HashMarker;
 #[cfg(feature = "mac")]
 use crate::MacMarker;
+use array::Array;
 use core::{fmt, marker::PhantomData};
-use crypto_common::{
-    generic_array::{ArrayLength, GenericArray},
-    typenum::{IsLess, IsLessOrEqual, Le, LeEq, NonZero, U256},
-    Block, BlockSizeUser, OutputSizeUser,
-};
+use crypto_common::{BlockSizeUser, OutputSizeUser};
 
 /// Wrapper around [`VariableOutputCore`] which selects output size
 /// at compile time.
 #[derive(Clone)]
-pub struct CtVariableCoreWrapper<T, OutSize>
+pub struct CtVariableCoreWrapper<T, const OUT_SIZE: usize>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     inner: T,
-    _out: PhantomData<OutSize>,
+    _out: PhantomData<[u8; OUT_SIZE]>,
 }
 
-impl<T, OutSize> HashMarker for CtVariableCoreWrapper<T, OutSize>
-where
-    T: VariableOutputCore + HashMarker,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
+impl<T, const OUT_SIZE: usize> HashMarker for CtVariableCoreWrapper<T, OUT_SIZE> where
+    T: VariableOutputCore + HashMarker
 {
 }
 
 #[cfg(feature = "mac")]
-impl<T, OutSize> MacMarker for CtVariableCoreWrapper<T, OutSize>
-where
-    T: VariableOutputCore + MacMarker,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
+impl<T, const OUT_SIZE: usize> MacMarker for CtVariableCoreWrapper<T, OUT_SIZE> where
+    T: VariableOutputCore + MacMarker
 {
 }
 
-impl<T, OutSize> BlockSizeUser for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> BlockSizeUser for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
-    type BlockSize = T::BlockSize;
+    type Block = T::Block;
 }
 
-impl<T, OutSize> UpdateCore for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> UpdateCore for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
-    fn update_blocks(&mut self, blocks: &[Block<Self>]) {
+    fn update_blocks(&mut self, blocks: &[Self::Block]) {
         self.inner.update_blocks(blocks);
     }
 }
 
-impl<T, OutSize> OutputSizeUser for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> OutputSizeUser for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize> + 'static,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
-    type OutputSize = OutSize;
+    type Output = [u8; OUT_SIZE];
 }
 
-impl<T, OutSize> BufferKindUser for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> BufferKindUser for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     type BufferKind = T::BufferKind;
 }
 
-impl<T, OutSize> FixedOutputCore for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> FixedOutputCore for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize> + 'static,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
-    fn finalize_fixed_core(
-        &mut self,
-        buffer: &mut Buffer<Self>,
-        out: &mut GenericArray<u8, Self::OutputSize>,
-    ) {
-        let mut full_res = Default::default();
+    fn finalize_fixed_core(&mut self, buffer: &mut Buffer<Self>, out: &mut [u8; OUT_SIZE]) {
+        let mut full_res = <T::Output as Array>::zero();
         self.inner.finalize_variable_core(buffer, &mut full_res);
         let n = out.len();
-        let m = full_res.len() - n;
+        let m = full_res.as_ref().len() - n;
         match T::TRUNC_SIDE {
-            TruncSide::Left => out.copy_from_slice(&full_res[..n]),
-            TruncSide::Right => out.copy_from_slice(&full_res[m..]),
+            TruncSide::Left => out.copy_from_slice(&full_res.as_ref()[..n]),
+            TruncSide::Right => out.copy_from_slice(&full_res.as_ref()[m..]),
         }
     }
 }
 
-impl<T, OutSize> Default for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> Default for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn default() -> Self {
         Self {
-            inner: T::new(OutSize::USIZE).unwrap(),
+            inner: T::new(OUT_SIZE).unwrap(),
             _out: PhantomData,
         }
     }
 }
 
-impl<T, OutSize> Reset for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> Reset for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn reset(&mut self) {
@@ -151,17 +102,13 @@ where
     }
 }
 
-impl<T, OutSize> AlgorithmName for CtVariableCoreWrapper<T, OutSize>
+impl<T, const OUT_SIZE: usize> AlgorithmName for CtVariableCoreWrapper<T, OUT_SIZE>
 where
     T: VariableOutputCore + AlgorithmName,
-    OutSize: ArrayLength<u8> + IsLessOrEqual<T::OutputSize>,
-    LeEq<OutSize, T::OutputSize>: NonZero,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     fn write_alg_name(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         T::write_alg_name(f)?;
         f.write_str("_")?;
-        write!(f, "{}", OutSize::USIZE)
+        write!(f, "{}", OUT_SIZE)
     }
 }
