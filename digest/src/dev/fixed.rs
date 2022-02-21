@@ -10,14 +10,14 @@ where
     // Test that it works when accepting the message all at once
     hasher.update(input);
     let mut hasher2 = hasher.clone();
-    if hasher.finalize()[..] != output[..] {
+    if hasher.finalize().as_ref()[..] != output[..] {
         return Some("whole message");
     }
 
     // Test if reset works correctly
     hasher2.reset();
     hasher2.update(input);
-    if hasher2.finalize_reset()[..] != output[..] {
+    if hasher2.finalize_reset().as_ref()[..] != output[..] {
         return Some("whole message after reset");
     }
 
@@ -28,10 +28,10 @@ where
             hasher.update(chunk);
             hasher2.update(chunk);
         }
-        if hasher.finalize()[..] != output[..] {
+        if hasher.finalize().as_ref()[..] != output[..] {
             return Some("message in chunks");
         }
-        if hasher2.finalize_reset()[..] != output[..] {
+        if hasher2.finalize_reset().as_ref()[..] != output[..] {
             return Some("message in chunks");
         }
     }
@@ -47,7 +47,7 @@ where
     let mut hasher = D::default();
     // Test that it works when accepting the message all at once
     hasher.update(input);
-    if hasher.finalize_fixed()[..] != output[..] {
+    if hasher.finalize_fixed().as_ref()[..] != output[..] {
         return Some("whole message");
     }
 
@@ -57,7 +57,7 @@ where
         for chunk in input.chunks(n) {
             hasher.update(chunk);
         }
-        if hasher.finalize_fixed()[..] != output[..] {
+        if hasher.finalize_fixed().as_ref()[..] != output[..] {
             return Some("message in chunks");
         }
     }

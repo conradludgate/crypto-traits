@@ -4,7 +4,7 @@ members = [
     "aead",
     "crypto-common",
     "digest",
-    # "signature",
-    # "signature/async",
-    # "universal-hash",
+    "signature",
+    "signature/async",
+    "universal-hash",
 ]

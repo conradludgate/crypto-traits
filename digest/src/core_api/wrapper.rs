@@ -5,6 +5,7 @@ use super::{
 use crate::{
     ExtendableOutput, ExtendableOutputReset, FixedOutput, FixedOutputReset, HashMarker, Update,
 };
+use array::Array;
 use block_buffer::BlockBuffer;
 use core::fmt;
 use crypto_common::{BlockSizeUser, KeyInit, KeySizeUser};
@@ -15,13 +16,22 @@ use crate::MacMarker;
 /// Wrapper around [`BufferKindUser`].
 ///
 /// It handles data buffering and implements the slice-based traits.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CoreWrapper<T>
 where
     T: BufferKindUser,
 {
     core: T,
     buffer: BlockBuffer<T::Block, T::BufferKind>,
+}
+
+impl<T: BufferKindUser + Default> Default for CoreWrapper<T> {
+    fn default() -> Self {
+        Self {
+            core: Default::default(),
+            buffer: BlockBuffer::default(),
+        }
+    }
 }
 
 impl<T> HashMarker for CoreWrapper<T> where T: BufferKindUser + HashMarker {}
@@ -187,8 +197,6 @@ where
 impl<T> std::io::Write for CoreWrapper<T>
 where
     T: BufferKindUser + UpdateCore,
-    T::BlockSize: IsLess<U256>,
-    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

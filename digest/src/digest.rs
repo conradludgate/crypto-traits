@@ -185,6 +185,7 @@ impl<D: Update + FixedOutputReset + Reset + Clone + 'static> DynDigest for D {
     #[cfg(feature = "alloc")]
     fn finalize_reset(&mut self) -> Box<[u8]> {
         FixedOutputReset::finalize_fixed_reset(self)
+            .as_ref()
             .to_vec()
             .into_boxed_slice()
     }
@@ -192,6 +193,7 @@ impl<D: Update + FixedOutputReset + Reset + Clone + 'static> DynDigest for D {
     #[cfg(feature = "alloc")]
     fn finalize(self: Box<Self>) -> Box<[u8]> {
         FixedOutput::finalize_fixed(*self)
+            .as_ref()
             .to_vec()
             .into_boxed_slice()
     }
