@@ -5,7 +5,6 @@ use super::{
 use crate::{
     ExtendableOutput, ExtendableOutputReset, FixedOutput, FixedOutputReset, HashMarker, Update,
 };
-use array::Array;
 use block_buffer::BlockBuffer;
 use core::fmt;
 use crypto_common::{BlockSizeUser, KeyInit, KeySizeUser};
